@@ -1,5 +1,6 @@
 const fs = require('fs')
 const http = require('http')
+const fetch = require('node-fetch')
 const { URL } = require('url')
 const { DEBUG, HEADFUL, CHROME_BIN, PORT } = process.env
 
@@ -36,6 +37,8 @@ require('http')
   .createServer(async (req, res) => {
     const { host } = req.headers
 
+    console.log('req url: ', req.url)
+
     if (req.url == '/') {
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
@@ -71,10 +74,34 @@ require('http')
       return
     }
 
+    if (req.url.indexOf('/proxy') == 0) {
+      const [_, action, url] = req.url.match(/^\/(proxy)?\/?(.*)/i) || [
+        '',
+        '',
+        ''
+      ]
+
+      let ret = await fetch(url)
+      console.log('proxy type:', ret.headers.get('content-type'))
+      res.writeHead(200, {
+        'content-type': ret.headers.get('content-type'),
+        'cache-control': 'public,max-age=31536000'
+      })
+
+      ret.body
+        .on('data', chunk => {
+          res.write(chunk)
+        })
+        .on('end', () => {
+          res.end()
+        })
+      return
+    }
+
     const [_, action, url] = req.url.match(
       /^\/(screenshot|render|pdf)?\/?(.*)/i
     ) || ['', '', '']
-    // console.log(req.headers.host, _)
+
     reqUrl = req.headers.host
     if (!url) {
       res.writeHead(400, {
@@ -95,6 +122,7 @@ require('http')
     }
 
     let page, pageURL
+    console.log('choosing')
     try {
       if (!/^https?:\/\//i.test(url)) {
         throw new Error('Invalid URL')
@@ -103,51 +131,14 @@ require('http')
       const { origin, hostname, pathname, searchParams } = new URL(url)
       const path = decodeURIComponent(pathname)
 
-      await new Promise((resolve, reject) => {
-        const req = http.request(
-          {
-            method: 'HEAD',
-            host: hostname,
-            path
-          },
-          ({ statusCode, headers }) => {
-            if (
-              !headers ||
-              (statusCode == 200 &&
-                !/text\/html/i.test(headers['content-type']))
-            ) {
-              http
-                .get(
-                 url ,
-                  resp => {
-                    let data = ''
-
-                    // A chunk of data has been recieved.
-                    resp.on('data', chunk => {
-                      data += chunk
-                    })
-
-                    // The whole response has been received. Print out the result.
-                    resp.on('end', () => {
-                      res.end(data)
-
-                      // console.log(JSON.parse(data).explanation)
-                      // reject(new Error('Not a HTML page'))
-                    })
-                  }
-                )
-                .on('error', err => {
-                  console.log('Error: ' + err.message)
-                })
-
-            } else {
-              resolve()
-            }
-          }
-        )
-        req.on('error', reject)
-        req.end()
+      let ret = await fetch(url, {
+        method: 'HEAD',
+        timeout: 3000
       })
+
+      if (!/text\/html/i.test(ret.headers.get('content-type'))) {
+        throw new Error('Not a HTML page')
+      }
 
       pageURL = origin + path
       let actionDone = false
@@ -190,13 +181,13 @@ require('http')
           // Abort requests that exceeds 15 seconds
           // Also abort if more than 100 requests
           if (seconds > 15 || reqCount > 100 || actionDone) {
-            console.log(`❌⏳ ${method} ${shortURL}`)
+            // console.log(`❌⏳ ${method} ${shortURL}`)
             request.abort()
           } else if (blockedRegExp.test(url) || otherResources) {
-            console.log(`❌ ${method} ${shortURL}`)
+            // console.log(`❌ ${method} ${shortURL}`)
             request.abort()
           } else {
-            console.log(`✅ ${method} ${shortURL}`)
+            // console.log(`✅ ${method} ${shortURL}`)
             request.continue()
             reqCount++
           }
@@ -248,11 +239,10 @@ require('http')
       switch (action) {
         case 'render': {
           const raw = searchParams.get('raw') || false
-          console.log(raw)
           const content = await pTimeout(
             raw
               ? page.content()
-              : page.evaluate((reqUrl) => {
+              : page.evaluate(reqUrl => {
                 let content = ''
                 if (document.doctype) {
                   content = new XMLSerializer().serializeToString(
@@ -287,11 +277,10 @@ require('http')
                 absEls.forEach(el => {
                   const href = el.getAttribute('href')
                   const src = el.getAttribute('src')
-                  console.log(href, src)
                   if (src && /^\/[^/]/i.test(src)) {
-                    el.src = '//'+reqUrl + '/render/' + origin + src
+                    el.src = '//' + reqUrl + '/proxy/' + origin + src
                   } else if (href && /^\/[^/]/i.test(href)) {
-                    el.href = '//' + reqUrl + '/render/' + origin + href
+                    el.href = '//' + reqUrl + '/proxy/' + origin + href
                   }
                 })
 
@@ -307,8 +296,8 @@ require('http')
           )
 
           res.writeHead(200, {
-            'content-type': 'text/html; charset=UTF-8',
-            'cache-control': 'public,max-age=31536000'
+            'content-type': 'text/html; charset=UTF-8'
+            // 'cache-control': 'public,max-age=31536000'
           })
           res.end(content)
           break
@@ -327,8 +316,8 @@ require('http')
           )
 
           res.writeHead(200, {
-            'content-type': 'application/pdf',
-            'cache-control': 'public,max-age=31536000'
+            'content-type': 'application/pdf'
+            // 'cache-control': 'public,max-age=31536000'
           })
           res.end(pdf, 'binary')
           break
@@ -375,7 +364,7 @@ require('http')
           )
 
           res.writeHead(200, {
-            'content-type': 'image/jpeg',
+            'content-type': 'image/jpeg'
             'cache-control': 'public,max-age=31536000'
           })
 
@@ -402,7 +391,9 @@ require('http')
         page.frames().forEach(frame => {
           frame.evaluate(() => {
             // Clear all timer intervals https://stackoverflow.com/a/6843415/20838
-            for (var i = 1; i < 99999; i++) { window.clearInterval(i) }
+            for (var i = 1; i < 99999; i++) {
+              window.clearInterval(i)
+            }
             // Disable all XHR requests
             XMLHttpRequest.prototype.send = _ => _
             // Disable all RAFs
@@ -411,8 +402,9 @@ require('http')
         })
       }
     } catch (e) {
+      console.error(e)
       if (!DEBUG && page) {
-        console.error(e)
+        // console.error(e)
         console.log('💔 Force close ' + pageURL)
         page.removeAllListeners()
         page.close()
@@ -422,7 +414,7 @@ require('http')
       res.writeHead(400, {
         'content-type': 'text/plain'
       })
-      res.end('Oops. Something is wrong.\n\n' + message)
+      res.end('Oops. Something is wrong.(链接可能被墙，请部署到国外服务器)\n\n' + message)
 
       // Handle websocket not opened error
       if (/not opened/i.test(message) && browser) {
@@ -437,7 +429,7 @@ require('http')
       }
     }
   })
-  .listen(PORT || 3000)
+  .listen(PORT || 3008)
 
 process.on('SIGINT', () => {
   if (browser) browser.close()
