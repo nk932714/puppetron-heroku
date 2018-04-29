@@ -21,11 +21,12 @@ Please check out what [Puppeteer](https://github.com/GoogleChrome/puppeteer) can
 API
 ---
 
-The API can perform 3 actions:
+The API can perform 4 actions:
 
 - [Screenshot](#screenshot) - take a screenshot of the web page
 - [Render](#render) - render and serialize a HTML copy of the web page
 - [PDF](#pdf) - generate a PDF of the web page
+- [Proxy][#proxy] - just a proxy, return staic file requested from the url
 
 **`URL`** - the URL with encoded `pathname`, `search` and `hash`.
 
@@ -78,6 +79,13 @@ Parameters:
 Development
 ---
 
+
+### Proxy
+```
+/proxy/{URL}
+```
+
+
 ### Requirements
 
 - Node.js
@@ -95,7 +103,11 @@ For Docker-based install:
 2. `docker run -p 8080:3000 puppet`
 3. Load `localhost:8080`
 
-[![Deploy to now](https://deploy.now.sh/static/button.svg)](https://deploy.now.sh/?repo=https://github.com/cheeaun/puppetron)
+For heroku deployment: 
+
+Don't forget to add [puppeteer buildpack](https://github.com/CoffeeAndCode/puppeteer-heroku-buildpack.git)
+
+[![Deploy to now](https://deploy.now.sh/static/button.svg)](https://deploy.now.sh/?repo=https://github.com/ioriens/puppetron)
 
 Credits
 ---
