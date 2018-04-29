@@ -74,13 +74,7 @@ require('http')
       return
     }
 
-    if (req.url.indexOf('/proxy') == 0) {
-      const [_, action, url] = req.url.match(/^\/(proxy)?\/?(.*)/i) || [
-        '',
-        '',
-        ''
-      ]
-
+    const proxyReq = async function(url) {
       let ret = await fetch(url)
       console.log('proxy type:', ret.headers.get('content-type'))
       res.writeHead(200, {
@@ -95,6 +89,17 @@ require('http')
         .on('end', () => {
           res.end()
         })
+
+    }
+
+    if (req.url.indexOf('/proxy') == 0) {
+      const [_, action, url] = req.url.match(/^\/(proxy)?\/?(.*)/i) || [
+        '',
+        '',
+        ''
+      ]
+
+      await proxyReq(url)
       return
     }
 
@@ -105,7 +110,7 @@ require('http')
     reqUrl = req.headers.host
     if (!url) {
       res.writeHead(400, {
-        'content-type': 'text/plain'
+        'content-type': 'text/plain; charset=utf-8'
       })
       res.end('Something is wrong. Missing URL.')
       return
@@ -113,7 +118,7 @@ require('http')
 
     if (cache.itemCount > 20) {
       res.writeHead(420, {
-        'content-type': 'text/plain'
+        'content-type': 'text/plain; charset=utf-8'
       })
       res.end(
         `There are ${cache.itemCount} pages in the current instance now. Please try again in few minutes.`
@@ -137,7 +142,9 @@ require('http')
       })
 
       if (!/text\/html/i.test(ret.headers.get('content-type'))) {
-        throw new Error('Not a HTML page')
+        console.log('Not a HTML page')
+        await proxyReq(url)
+        return
       }
 
       pageURL = origin + path
@@ -412,7 +419,7 @@ require('http')
       cache.del(pageURL)
       const { message = '' } = e
       res.writeHead(400, {
-        'content-type': 'text/plain'
+        'content-type': 'text/plain; charset=utf-8'
       })
       res.end('Oops. Something is wrong.(链接可能被墙，请部署到国外服务器)\n\n' + message)
 
@@ -429,7 +436,7 @@ require('http')
       }
     }
   })
-  .listen(PORT || 3008)
+  .listen(PORT || 3000)
 
 process.on('SIGINT', () => {
   if (browser) browser.close()
